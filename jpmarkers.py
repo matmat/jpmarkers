@@ -61,28 +61,37 @@ def read_jpeg_markers(file_path):
     try:
         with open(file_path, "rb") as f:
             while True:
-                # Read the marker (two bytes)
-                marker_bytes = f.read(2)
-                if not marker_bytes:
+                # Read the byte
+                marker_byte = f.read(1)
+                if not marker_byte:
                     break  # End of file
 
+                marker_byte = struct.unpack('B', marker_byte)[0]
+                
                 # Check for valid marker (start with 0xFF)
-                if marker_bytes[0] != 0xFF:
+                if marker_byte != 0xFF:
                     continue
 
                 # Get the marker code (second byte)
-                marker_code = marker_bytes[1]
+                marker_code = f.read(1)
+                if not marker_code:
+                    break  # End of file
+
+                marker_code = struct.unpack('B', marker_code)[0]
+
+                # Encoded 0xFF
+                if marker_code == 0x00:
+                    continue
 
                 # Determine the marker name based on the code
                 marker_hexstring = f"0xFF{marker_code:02X}"
 
-                # If the marker is 0xFFD8 (SOI) or 0xFFD9 (EOI), it has no data segment
-                if marker_code == 0xD8 or marker_code == 0xD9:
-                    data_segment = b""
-                else:
+                # Only read segment length for marker that has it
+                if marker_code < 0xD0 or marker_code > 0xD9:
                     # Read the marker segment length (two bytes)
                     segment_length_bytes = f.read(2)
                     segment_length = struct.unpack(">H", segment_length_bytes)[0]
+
 
                     # Read the marker segment data
                     data_segment = f.read(
@@ -91,7 +100,7 @@ def read_jpeg_markers(file_path):
 
 
                 # Convert marker bytes to an integer using struct.unpack
-                marker_int = struct.unpack(">H", marker_bytes)[0]
+                marker_int = marker_code | 0xFF00
 
                 marker_name = jpeg_markers.get(marker_int, 'UNKNOWN')
 
