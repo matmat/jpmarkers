@@ -3,6 +3,7 @@
 import argparse
 import struct
 import os
+import hashlib
 
 jpeg_markers = {
     # 00, 01, FE, C0, DF
@@ -172,10 +173,14 @@ def read_jpeg_markers(file_path):
         with open(file_path, "rb") as f:
             offset = 0  # Initialize the offset to 0
             marker_code = 0
+            print("{:7} {:17} {:5}".format("Offset", "Marker", "Length"))
+
             while True:
                 if marker_code in start_of_bitsream_markers:
                     data = read_image_data(f)
-                    print(f"{offset:06X}: [bitstream data]")
+                    hash = hashlib.sha256(data)
+                    hash_string = hash.hexdigest()
+                    print(f"{offset:06X}: [bitstream data]  {len(data):>6}  {hash_string}")
                     offset += len(data)
 
                 # Read the byte
@@ -207,7 +212,9 @@ def read_jpeg_markers(file_path):
                 marker_code = marker_code | 0xFF00
 
                 # Determine the marker name based on the code
-                marker_hexstring = f"{offset:06X}: 0x{marker_code:02X}"
+                marker_name = jpeg_markers.get(marker_code, "RES")
+                marker_string = f"{offset:06X}: {marker_name:5} (0x{marker_code:04X})    "
+
 
                 # Only read segment length for markers with parameters
                 if marker_code not in paramterless_jpeg_markers:
@@ -221,14 +228,20 @@ def read_jpeg_markers(file_path):
                         break   # End of file
 
                     data_segment = segment_length_bytes + data_segment
+                    hash = hashlib.sha256(data_segment)
+                    hash_string = hash.hexdigest()
+
                     offset += len(data_segment)
+                else:
+                    segment_length = 0
+                    hash_string = ""
 
                 # increase offset for marker bytes
                 offset += 2
 
-                marker_name = jpeg_markers.get(marker_code, "UNKNOWN")
+                marker_string += f" {segment_length:>5}  {hash_string}"
 
-                print(f"{marker_hexstring} ({marker_name})")
+                print(marker_string)
 
 
     except FileNotFoundError:
