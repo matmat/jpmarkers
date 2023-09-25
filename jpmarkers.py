@@ -5,6 +5,7 @@ import struct
 import os
 import hashlib
 
+# fmt: off
 jpeg_markers = {
     # 00, 01, FE, C0, DF
     # Rec. ITU-T T.81 | ISO/IEC 10918-1
@@ -42,6 +43,8 @@ jpeg_markers = {
     0xFF5C: "QCD",   0xFF5D: "QCC",   0xFF5E: "RGN",   0xFF5F: "POC",
 
     # 60-6F
+    # ILL is taken from the CREW patent, table 3
+    # https://patents.google.com/patent/US20060233257A1
     0xFF60: "PPM",   0xFF61: "PPT",   0xFF62: "ILL",   0xFF63: "CRG",
     0xFF64: "COM",   0xFF65: "SEC",   0xFF66: "EPB",   0xFF67: "ESD",
     0xFF68: "EPC",   0xFF69: "RED",
@@ -106,20 +109,24 @@ valid_bitstream_markers = [
 ]
 
 start_of_bitsream_markers = [
+    0xFFD0, 0xFFD1, 0xFFD2, 0xFFD3, # RST0, RST1, RST2, RST3
+    0xFFD4, 0xFFD5, 0xFFD6, 0xFFD7, # RST4, RST5, RST6, RST7
+
     0xFF93, 0xFFDA,                 # SOD, SOS
 ]
 
 end_of_bitstream_markers = [
-    0xFFDC, 0xFFD9, 0xFFDA, 0xFF90  # DNL, EOI/EOC, SOS, SOT
+    0xFFD9, 0xFF90                  # EOI/EOC, SOT
 ]
+# fmt: on
 
 
-def read_image_data(f):
-
+def read_image_data(f, bitstream_marker_code):
     CHUNK_SIZE = 4096
     data = b""
     orig_fpos = f.tell()
-    offset = 0
+    search_offset = 0
+    index = 0
 
     while True:
         chunk = f.read(CHUNK_SIZE)
@@ -128,44 +135,73 @@ def read_image_data(f):
 
         data += chunk
 
-        index = 0
-
         # spin through allowed markers in image data
-        while index != -1:
-            index = data.find(b'\xFF', offset)
+        while True:
+            if search_offset >= len(data):
+                break  # read more data
+
+            index = data.find(b"\xFF", search_offset)
 
             if index == -1:
-                continue
-            # marker byte is last byte of current chunk
-            elif (index == len(data) - 1):
                 break
 
-            offset = index + 1
+            try:
+                marker_code = data[index + 1] | 0xFF00
+            except IndexError:
+                break
 
-            # get marker code and convert to int
-            marker_code = data[index + 1]
+            if bitstream_marker_code != 0xFF93:  # not SOD, i.e. "plain" JPEG
+                # padding or stuffing, and RST markers
+                if (
+                    marker_code == 0xFFFF
+                    or marker_code == 0xFF00
+                    or 0xFFD0 <= marker_code <= 0xFFD7
+                ):
+                    search_offset = index + 2
+                    continue
+                else:  # SOS segment can contain any marker
+                    data = data[:index]
+                    # seek back to the first marker after bitstream data
+                    f.seek(orig_fpos + index)
+                    pos = f.tell()
+                    return data
+            else:  # SOD, JPEG 2000
+                if marker_code == 0xFF91 or marker_code == 0xFF92:  # SOP or EPH
+                    try:
+                        segment_length_bytes = data[(index + 2) : (index + 4)]
+                    except IndexError:
+                        break  # read more data
 
-            # 0xFF is used for padding
-            if marker_code == 0xFF:
-                offset = index + 1
-                continue
+                    segment_length = struct.unpack(">H", segment_length_bytes)[0]
+                    search_offset = index + 2 + segment_length
+                    continue
+                elif marker_code in end_of_bitstream_markers:
+                    data = data[:index]
+                    f.seek(orig_fpos + index)
+                    return data
+                else:
+                    search_offset = index + 2
+                    continue
 
-            marker_code = marker_code | 0xFF00
+    return data  # End of file
 
-            if marker_code in end_of_bitstream_markers:
-                data = data[:index]
-                f.seek(orig_fpos + index) # seek back to end of data marker
-                return(data)
 
-        # if marker byte is last byte in chunk, seek back one byte and read another chunk
-        if (index == len(data) - 1):
-            if len(chunk) == CHUNK_SIZE:
-                offset = index
-                data = data[:-1]
-                f.seek(-1, os.SEEK_CUR)
-                continue
-            else:
-                return(data)  # End of file
+def segment_string(offset, marker_code, data=None):
+    if marker_code:
+        marker_name = jpeg_markers.get(marker_code, "RES")
+        marker_name = f"{marker_name:5} (0x{marker_code:04X})  "
+    else:
+        marker_code = ""
+        marker_name = "[bitstream data]"
+        marker_name = f"{marker_name:14}"
+
+    segment_len = len(data)
+    if segment_len > 0:
+        segment_hash = hashlib.sha256(data).hexdigest()
+    else:
+        segment_hash = ""
+
+    return f"{offset:06X}: {marker_name} {segment_len:>8}  {segment_hash}"
 
 
 def read_jpeg_markers(file_path):
@@ -173,16 +209,9 @@ def read_jpeg_markers(file_path):
         with open(file_path, "rb") as f:
             offset = 0  # Initialize the offset to 0
             marker_code = 0
-            print("{:7} {:17} {:5}".format("Offset", "Marker", "Length"))
+            print("{:7} {:16} {:>8}  {}".format("Offset", "Marker", "Length", "Hash"))
 
             while True:
-                if marker_code in start_of_bitsream_markers:
-                    data = read_image_data(f)
-                    hash = hashlib.sha256(data)
-                    hash_string = hash.hexdigest()
-                    print(f"{offset:06X}: [bitstream data]  {len(data):>6}  {hash_string}")
-                    offset += len(data)
-
                 # Read the byte
                 marker_byte = f.read(1)
                 if not marker_byte:
@@ -202,19 +231,12 @@ def read_jpeg_markers(file_path):
                     break  # End of file
 
                 # convert to int
-                marker_code = ord(marker_code)
+                marker_code = ord(marker_code) | 0xFF00
 
                 # 0xFF is used for padding
-                if marker_code == 0xFF:
+                if marker_code == 0xFF00:
                     offset += 1
                     continue
-
-                marker_code = marker_code | 0xFF00
-
-                # Determine the marker name based on the code
-                marker_name = jpeg_markers.get(marker_code, "RES")
-                marker_string = f"{offset:06X}: {marker_name:5} (0x{marker_code:04X})    "
-
 
                 # Only read segment length for markers with parameters
                 if marker_code not in paramterless_jpeg_markers:
@@ -225,7 +247,7 @@ def read_jpeg_markers(file_path):
                     # Read the marker segment data
                     data_segment = f.read(segment_length - 2)
                     if not data_segment:
-                        break   # End of file
+                        break  # End of file
 
                     data_segment = segment_length_bytes + data_segment
                     hash = hashlib.sha256(data_segment)
@@ -233,16 +255,21 @@ def read_jpeg_markers(file_path):
 
                     offset += len(data_segment)
                 else:
+                    data_segment = b""
                     segment_length = 0
                     hash_string = ""
+
+                print(segment_string(offset, marker_code, data_segment))
 
                 # increase offset for marker bytes
                 offset += 2
 
-                marker_string += f" {segment_length:>5}  {hash_string}"
-
-                print(marker_string)
-
+                if marker_code in start_of_bitsream_markers:
+                    data = read_image_data(f, marker_code)
+                    hash = hashlib.sha256(data)
+                    hash_string = hash.hexdigest()
+                    print(segment_string(offset, None, data))
+                    offset += len(data)
 
     except FileNotFoundError:
         print("File not found.")
