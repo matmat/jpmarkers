@@ -77,8 +77,8 @@ jpeg_markers = {
     0xFFEC: "APP12", 0xFFED: "APP13", 0xFFEE: "APP14",  0xFFEF: "APP15",
 
     # F0-FE
-    0xFFF0: "JPG0",  0xFFF1: "JPG1",  0xFFF2: "JPG2",   0xFFF3: "JPG3",
-    0xFFF4: "JPG4",  0xFFF5: "JPG5",  0xFFF6: "JPG6",   0xFFF7: "SOF48",
+    0xFFF0: "VER",   0xFFF1: "DTI",   0xFFF2: "DTT",    0xFFF3: "SRF",
+    0xFFF4: "SRS",   0xFFF5: "DCR",   0xFFF6: "DQS",    0xFFF7: "SOF55",
     0xFFF8: "LSE",   0xFFF9: "JPG9",  0xFFFA: "JPG10",  0xFFFB: "JPG11",
     0xFFFC: "JPG12", 0xFFFD: "JPG13", 0xFFFE: "COM",
 }
