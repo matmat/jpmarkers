@@ -1,3 +1,47 @@
+'''
+Crude script to read Signatures.inl from JPEGsnoop and produce a python dict.
+It is a good idea to run it through "black" source formatter afterwards.
+
+A dict like this is produced of the JPEGsnoop data:
+
+sigs = {
+    "010024c0f1734b148ceccd76ee92d9a1": [
+        {
+            "eEditor": "ENUM_EDITOR_SW",
+            "strCSigRot": "01e80b819244db40bc79151703625e2f",
+            "strMSwDisp": "Apple ImageIO.framework",
+            "strMSwTrim": "",
+            "strUmQual": "054",
+            "strXMake": "Apple ImageIO.framework",
+            "strXModel": "",
+            "strXSubsamp": "",
+        }
+    ],
+    "0100e9aa36415d0482e7ad68eaf372c3": [
+        {
+            "eEditor": "ENUM_EDITOR_CAM",
+            "strCSigRot": "012840f1b30da4789a3345257eeb59c9",
+            "strMSwDisp": "",
+            "strMSwTrim": "",
+            "strUmQual": "FINE",
+            "strXMake": "NIKON",
+            "strXModel": "E4800",
+            "strXSubsamp": "2x1",
+        },
+        {
+            "eEditor": "ENUM_EDITOR_CAM",
+            "strCSigRot": "012840f1b30da4789a3345257eeb59c9",
+            "strMSwDisp": "",
+            "strMSwTrim": "",
+            "strUmQual": "",
+            "strXMake": "OLYMPUS IMAGING CORP.",
+            "strXModel": "SP310",
+            "strXSubsamp": "2x1",
+        },
+    ],
+}
+'''
+
 import re
 import sys
 from pprint import pprint
