@@ -5,8 +5,9 @@ import struct
 import os
 import hashlib
 from pprint import pprint
-import jpegsnoop_sigs
-import exiftool_sigs
+import sigs_jpegsnoop
+import sigs_exiftool
+import sigs_gdal
 import numpy as np
 
 
@@ -727,13 +728,13 @@ def read_jpeg_markers(file_path):
             print("\nqtables_transposed")
             pprint(transpose_qtables(qtables_linear))
 
-            if et_hash_string in exiftool_sigs.sigs:
-                print("\nmatching exiftool_sig:")
-                pprint(exiftool_sigs.sigs[et_hash_string])
+            if et_hash_string in sigs_exiftool.sigs:
+                print("\nmatching sigs_exiftool:")
+                pprint(sigs_exiftool.sigs[et_hash_string])
 
-            if js_hash_string in jpegsnoop_sigs.sigs:
-                print("\nmatching jpegsnoop_sigs:")
-                pprint(jpegsnoop_sigs.sigs[js_hash_string])
+            if js_hash_string in sigs_jpegsnoop.sigs:
+                print("\nmatching sigs_jpegsnoop:")
+                pprint(sigs_jpegsnoop.sigs[js_hash_string])
 
     except FileNotFoundError:
         print("File not found.")
