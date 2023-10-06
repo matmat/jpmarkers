@@ -30,7 +30,7 @@ https://github.com/OSGeo/gdal
     frmts/gtiff/quant_table_md5sum_jpeg9e.h
 '''
 
-sig = {
+sigs = {
     "f930bb47fbde76e39674631183055eb6": ["md5JPEGQuantTable_generic_8bit: quality 1"],
     "db392ef56b4cb61fec0b8d41dd654cf6": ["md5JPEGQuantTable_generic_8bit: quality 2"],
     "6a4dfa4fd424295f5add625fd8a7a5e1": ["md5JPEGQuantTable_generic_8bit: quality 3"],

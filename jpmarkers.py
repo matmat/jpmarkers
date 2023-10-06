@@ -8,6 +8,7 @@ from pprint import pprint
 import sigs_jpegsnoop
 import sigs_exiftool
 import sigs_gdal
+import sigs_gimp
 import numpy as np
 
 
@@ -216,7 +217,6 @@ def concat_hash_qtables(qtables):
         for array in arrays:
             concatenated_arrays.extend(array)
 
-    #print(concatenated_arrays)
     concatenated_bytes = bytes(concatenated_arrays)
     hash_object = hashlib.md5(concatenated_bytes)
     return hash_object.hexdigest()
@@ -232,7 +232,7 @@ def segment_string(offset, marker_code, data):
     else:
         segment_len = len(data)
         marker_code = ""
-        marker_name = "[bitstream data]"
+        marker_name = "[ECS]"
         marker_name = f"{marker_name:14}"
 
     if len(data[2:]) > 0:
@@ -249,7 +249,7 @@ def qdict_zigzag_to_linear(qtables):
 def zigzag_to_linear_table(matrix):
     # Create a zigzag pattern for 8x8 matrix
     zigzag_pattern = [
-        [ 0, 1, 5, 6, 14, 15, 27, 28],
+        [ 0,  1,  5,  6, 14, 15, 27, 28],
         [ 2,  4,  7, 13, 16, 26, 29, 42],
         [ 3,  8, 12, 17, 25, 30, 41, 43],
         [ 9, 11, 18, 24, 31, 40, 44, 53],
@@ -276,9 +276,9 @@ def zigzag_to_linear_table(matrix):
 def linear_to_zigzag_table(matrix):
     # Create a zigzag pattern for 8x8 matrix
     zigzag_pattern = [
-        [ 0, 1, 5, 6, 14, 15, 27, 28],
-        [ 2, 4, 7, 13, 16, 26, 29, 42],
-        [ 3, 8, 12, 17, 25, 30, 41, 43],
+        [ 0,  1,  5,  6, 14, 15, 27, 28],
+        [ 2,  4,  7, 13, 16, 26, 29, 42],
+        [ 3,  8, 12, 17, 25, 30, 41, 43],
         [ 9, 11, 18, 24, 31, 40, 44, 53],
         [10, 19, 23, 32, 39, 45, 52, 54],
         [20, 22, 33, 38, 46, 51, 55, 60],
@@ -393,44 +393,22 @@ def qtables_string(qtables):
     return '\n'.join(result)
 
 
-# Read qtables from *one* DQT segment and store them in the supplied
-# qtables dict. Returns the numer of tables in the marker segment
 def read_htables(data_segment):
+
     # discard length bytes
-    #print("data_segment: ")
-    #print("len(data_segment):", len(data_segment))
-    #print(data_segment.hex())
-
-
     data = data_segment[2:]
     table_ids = [] # table ids
     while data:
-        # Extract precision (upper 4 bits) and table id (lower 4 bits)
-        #print("data: ")
-        #print("len(data):", len(data))
-        #print(data.hex())
         tbltype_and_id = data[0]
         tbltype = tbltype_and_id >> 4
         table_id = tbltype_and_id & 0x0F
 
-        #print(f"tbltype: {tbltype}")
-        #print(f"table_id: {table_id}")
-
-
         table_ids.append(str(table_id) + ":" + ["AC","DC"][tbltype])
 
         size_table          = data[1:17]
-        #print(f"data[1:17]: {size_table.hex()}")
-        #print(f"len(size_table): {len(size_table)}")
-
 
         symbol_table_length = sum(size_table)
         table_length        = 16 + symbol_table_length
-        #print(f"symbol_table_length: {symbol_table_length}")
-        #print(f"table_length: {table_length}")
-
-        #print(f"len(data): {len(data)}")
-
 
 
         # Check if there's enough data for the next table
@@ -492,11 +470,6 @@ def transpose_matrix(matrix):
 
 def transpose_data_segments(data_segments):
     return list(map(transpose_data_segment, data_segments))
-    #print(len(r))
-    #print("Returned, transposed data")
-    #print(r)
-    #return r
-
 
 def transpose_data_segment(data_segment):
     #discard length bytes
@@ -514,9 +487,6 @@ def transpose_data_segment(data_segment):
         # Extract the table data
         table_data = data[1:1+table_length]
 
-        #print("table data")
-        #print(table_data.hex())
-
         # Convert the table data to a list of integers
         if precision:
             # 16-bit precision
@@ -531,14 +501,8 @@ def transpose_data_segment(data_segment):
         # zigzag (stored order) to linear
         matrix = zigzag_to_linear_table(matrix)
 
-        #print("matrix")
-        #pprint(matrix)
-
         # Transpose the matrix
         transposed_matrix = transpose_matrix(matrix)
-
-        #print("transposed matrix")
-        #pprint(transposed_matrix)
 
         # Convert to zigzag order (for storage)
         transposed_matrix = linear_to_zigzag_table(transposed_matrix)
@@ -561,9 +525,6 @@ def transpose_data_segment(data_segment):
         # Move on to the next table
         data = data[1+table_length:]
 
-    # prepend length bytes
-    #print ("old      data: ", (data_segment.hex())) 
-    #print ("returned data: ", (data_segment[:2] + new_data_segment).hex())
     return data_segment[:2] + new_data_segment
 
 
@@ -571,12 +532,7 @@ def merge_dicts_add_val_to_keys(dict1, dict2, add_value):
     #print("merge_dicts:", hex(add_value))
 
     new_dict2 = {k+add_value: v for k, v in dict2.items()}
-    #print("new_dict2:")
-    #pprint(new_dict2)
-    dict1.update(new_dict2)
-    return dict1
-
-
+    return dict2
 
 def read_bytes(file, num_bytes):
     bytes = file.read(num_bytes)
@@ -604,10 +560,14 @@ def read_jpeg_markers(file_path):
                 try:
 
                     data = read_bytes(file, 2)
-                    marker_code = struct.unpack(">H", data)[0]
+                    try:
+                        marker_code = struct.unpack(">H", data)[0]
+                    except struct.error:
+                        break   #End of file
 
                     # Skip if marker is not valid
-                    if marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_ZERO) or marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_MARKER_BYTE):
+                    if (marker_code >> 8 != 0xFF) or marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_ZERO) or marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_MARKER_BYTE):
+                        offset += 2
                         continue
 
                     markers[offset] = jpeg_markers[marker_code]
@@ -627,114 +587,123 @@ def read_jpeg_markers(file_path):
                             qtable_data_segments.append(data_segment)
                         elif marker_code == 0xFFC4:     # DHT
                             table_ids = read_htables(data_segment)
-                            markers[offset] += "(" + ".".join(table_ids) + ")"
+                            markers[offset] += "(" + ",".join(table_ids) + ")"
                             htable_data_segments.append(data_segment)
 
                     else:
                         data_segment = b''
                         segment_length = 0
-                        hash_string = ''
 
                     print(segment_string(offset, marker_code, data))
                     offset += len(data)
 
                     if marker_code in start_of_bitsream_markers:
                         (data, stream_markers) = read_image_data(file, marker_code)
-                        #pprint(stream_markers)
-                        #print("OFFSET: ", hex(offset))
-                        #pprint(stream_markers)
-                        markers = merge_dicts_add_val_to_keys(markers, stream_markers, offset)
-                        #markers.update(stream_markers)
-                        #print(segment_string(offset, None, data))
+                        stream_markers = merge_dicts_add_val_to_keys(markers, stream_markers, offset)
+                        markers.update(stream_markers)
+                        print(segment_string(offset, None, data))
                         offset += len(data)
+
 
                 except EOFError:
                     break
 
+            print("\n")
+            #print(np.array([markers[key] for key in sorted(markers)]))
+            print([markers[key] for key in sorted(markers)])
 
-            #pprint(markers)
-            print(np.array([markers[key] for key in sorted(markers)]))
-            #pprint(qtables)
+
             qtables_linear = qdict_zigzag_to_linear(qtables)
             qtables_trans  = transpose_qtables(qtables_linear)
 
-            #print("qtable data segments")
-            #print(qtable_data_segments)
 
             trans_data_segs  = transpose_data_segments(qtable_data_segments)
 
-            trans2_data_segs = transpose_data_segments(trans_data_segs)
+            et_hash_string = exiftool_hash_string(qtable_data_segments)
+            et_hash_string_r = exiftool_hash_string(trans_data_segs)
+            if et_hash_string in sigs_exiftool.sigs:
+                print("\nmatching_sigs_exiftool:")
+                pprint(sigs_exiftool.sigs[et_hash_string])
 
-            #print("prev     data:",  (qtable_data_segments[0].hex())) 
-            #print("trans/new dat:",  (trans2_data_segs[0].hex()))
-            #print("new      data:",  (trans_data_segs[0]).hex())
+            if et_hash_string_r in sigs_exiftool.sigs:
+                print("\nmatching_sigs_exiftool_(rotated):")
+                pprint(sigs_exiftool.sigs[et_hash_string_r])
 
-            #print("prev     data: ", (qtable_data_segments[1].hex())) 
-            #print("trans/new dat:",  (trans2_data_segs[1].hex()))
-            #print("new      data:",  (trans_data_segs[1]).hex())
+            gd_hash_string = gdal_hash_string(qtable_data_segments)
+            gd_hash_string_r = gdal_hash_string(trans_data_segs)
+            if gd_hash_string in sigs_gdal.sigs:
+                print("\nmatching_sigs_gdal:")
+                pprint(sigs_gdal.sigs[gd_hash_string])
 
+            if gd_hash_string_r in sigs_gdal.sigs:
+                print("\nmatching_sigs_gdal_(rotated):")
+                pprint(sigs_gdal.sigs[gd_hash_string_r])
+
+
+            gp_hash_string = gimp_hash_string(qtables_linear)
+            gp_hash_string_r = gimp_hash_string(qtables_trans)
+            if gp_hash_string in sigs_gimp.sigs:
+                print("\nmatching_sigs_gimp:")
+                pprint(sigs_gimp.sigs[gp_hash_string])
+
+            if gp_hash_string_r in sigs_gimp.sigs:
+                print("\nmatching_sigs_gimp_(rotated):")
+                pprint(sigs_gimp.sigs[gp_hash_string_r])
+
+
+            js_hash_string = jpegsnoop_hash_string(qtables_linear)
+            js_hash_string_r = jpegsnoop_hash_string(qtables_trans)
+            if js_hash_string in sigs_jpegsnoop.sigs:
+                print("\nmatching_sigs_jpegsnoop:")
+                pprint(sigs_jpegsnoop.sigs[js_hash_string])
+
+            if js_hash_string_r in sigs_jpegsnoop.sigs:
+                print("\nmatching_sigs_jpegsnoop_(rotated):")
+                pprint(sigs_jpegsnoop.sigs[js_hash_string_r])
 
 
             print("\n")
 
-            print(f"independantly hashed qtables:\n{hash_matrices(qtables)}")
+            #print(f"independantly hashed qtables:\n{hash_matrices(qtables)}")
 
             #print("\n")
-            print(f"\nAll qtables concatenated, then hashed:\n{concat_hash_qtables(qtables)}")
-
+            #print(f"\nAll qtables concatenated, then hashed:\n{concat_hash_qtables(qtables)}")
 
             et_hash_string = exiftool_hash_string(qtable_data_segments)
-            print(f"\nexiftool_hash_string:\n{et_hash_string}")
+            print(f"\nexiftool_hash_string: {et_hash_string}")
 
             et_hash_string_r = exiftool_hash_string(trans_data_segs)
-            print(f"\nexiftool_hash_string (rotated):\n{et_hash_string_r}")
-
+            print(f"\nexiftool_hash_string (rotated): {et_hash_string_r}")
 
             gp_hash_string = gimp_hash_string(qtables_linear)
-            print(f"\ngimp_hash_string:\n{gp_hash_string}")
+            print(f"\ngimp_hash_string: {gp_hash_string}")
 
             gp_hash_string_r = gimp_hash_string(qtables_trans)
-            print(f"\ngimp_hash_string (rotated):\n{gp_hash_string_r}")
-
-
+            print(f"\ngimp_hash_string (rotated): {gp_hash_string_r}")
 
             gd_hash_string = gdal_hash_string(qtable_data_segments)
             print(f"\ngdal_hash_string:\n{gd_hash_string}")
 
             gd_hash_string_r = gdal_hash_string(trans_data_segs)
-            print(f"\ngdal_hash_string (rotated):\n{gd_hash_string_r}")
-
-
+            print(f"\ngdal_hash_string (rotated): {gd_hash_string_r}")
 
             js_hash_string = jpegsnoop_hash_string(qtables_linear)
-            print(f"\njpegsnoop_hash_string:\n{js_hash_string}")
+            print(f"\njpegsnoop_hash_string: {js_hash_string}")
 
             js_hash_string_r = jpegsnoop_hash_string(qtables_trans)
-            print(f"\njpegsnoop_hash_string (rotated):\n{js_hash_string_r}")
+            print(f"\njpegsnoop_hash_string (rotated): {js_hash_string_r}")
 
-
-
-            #if gd_hash_string in gdal_sigs.sigs:
-            #    print("matching gdal_sig:")
-            #    pprint(gdal_sigs.sigs[gdal_hash_string])
-
-
-            print("\nqtables_zigzag:\n")
-            pprint(qtables)
+            #print("\nqtables_zigzag:\n")
+            #pprint(qtables)
 
             print("\nqtables_linear:\n")
             pprint(qtables_linear)
 
-            print("\nqtables_transposed")
-            pprint(transpose_qtables(qtables_linear))
+            #print("\nqtables_transposed")
+            #pprint(transpose_qtables(qtables_linear))
 
-            if et_hash_string in sigs_exiftool.sigs:
-                print("\nmatching sigs_exiftool:")
-                pprint(sigs_exiftool.sigs[et_hash_string])
 
-            if js_hash_string in sigs_jpegsnoop.sigs:
-                print("\nmatching sigs_jpegsnoop:")
-                pprint(sigs_jpegsnoop.sigs[js_hash_string])
+
 
     except FileNotFoundError:
         print("File not found.")
