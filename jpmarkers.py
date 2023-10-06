@@ -13,117 +13,122 @@ import numpy as np
 
 
 # fmt: off
+
+# JPEG marker constants
+M_STUF  = 0x00 # Stuffing, technically not a marker
+M_PAD   = 0xFF # Padding, technically not a marker
+M_TEM   = 0x01
+
+# JPEG 2000
+M_SOP   = 0x91; M_EPH   = 0x92; M_SOD   = 0x93
+
+M_SOF0  = 0xc0; M_SOF1  = 0xc1; M_SOF2  = 0xc2; M_SOF3  = 0xc3
+M_DHT   = 0xc4; M_SOF5  = 0xc5; M_SOF6  = 0xc6; M_SOF7  = 0xc7
+M_JPG   = 0xc8; M_SOF9  = 0xc9; M_SOF10 = 0xca; M_SOF11 = 0xcb
+M_DAC   = 0xcc; M_SOF13 = 0xcd; M_SOF14 = 0xce; M_SOF15 = 0xcf
+
+M_RST0  = 0xd0; M_RST1  = 0xd1; M_RST2  = 0xd2; M_RST3  = 0xd3
+M_RST4  = 0xd4; M_RST5  = 0xd5; M_RST6  = 0xd6; M_RST7  = 0xd7
+M_SOI   = 0xd8; M_EOI   = 0xd9; M_SOS   = 0xda; M_DQT   = 0xdb
+M_DNL   = 0xdc; M_DRI   = 0xdd; M_DHP   = 0xde; M_EXP   = 0xdf
+
+M_APP0  = 0xe0; M_APP1  = 0xe1; M_APP2  = 0xe2; M_APP3  = 0xe3
+M_APP4  = 0xe4; M_APP5  = 0xe5; M_APP6  = 0xe6; M_APP7  = 0xe7
+M_APP8  = 0xe8; M_APP9  = 0xe9; M_APP10 = 0xea; M_APP11 = 0xeb
+M_APP12 = 0xec; M_APP13 = 0xed; M_APP14 = 0xee; M_APP15 = 0xef
+
+M_JPG0  = 0xf0
+M_JPG13 = 0xfd; M_COM   = 0xfe
+
 jpeg_markers = {
-    # 00, 01, FE, C0, DF
-    # Rec. ITU-T T.81 | ISO/IEC 10918-1
-
-    # F0-F6
-    # Rec. ITU-T T.84 | ISO/IEC 10918-3
-
-    # F7-F8
-    # Rec. ITU-T T.87 | ISO/IEC 14495-1
-
-    # 4F-6F, 90-93
-    # Rec. ITU-T T.800 | ISO/IEC 15444-1
-
-    # 30-3F
-    # Reserverd for definition as markers only (no marker segments)
-
-
     # 01-0F
-                     0xFF01: "TEM",
-                                      0xFF0A: "JXL",
-
-    # 10-1F
-
-    # 20-2F
-
-    # 30-3F
+                      M_TEM:   "TEM",
+                                        0x0A: "JXL",
 
     # 40-4F
-                                                       0xFF4F: "SOC",
+                                                            0x4F: "SOC",
 
     # 50-5F
-    0xFF50: "CAP",   0xFF51: "SIZ",   0xFF52: "COD",   0xFF53: "COC",
-    0xFF54: "NSI",   0xFF55: "TLM",   0xFF56: "PRF",   0xFF57: "PLM",
-    0xFF58: "PLT",   0xFF59: "CPF",   0xFF5A: "QPD",   0xFF5B: "QPC",
-    0xFF5C: "QCD",   0xFF5D: "QCC",   0xFF5E: "RGN",   0xFF5F: "POC",
+    0x50:    "CAP",   0x51:    "SIZ",   0x52:    "COD",     0x53:  "COC",
+    0x54:    "NSI",   0x55:    "TLM",   0x56:    "PRF",     0x57:  "PLM",
+    0x58:    "PLT",   0x59:    "CPF",   0x5A:    "QPD",     0x5B:  "QPC",
+    0x5C:    "QCD",   0x5D:    "QCC",   0x5E:    "RGN",     0x5F:  "POC",
 
     # 60-6F
     # ILL is taken from the CREW patent, table 3
     # https://patents.google.com/patent/US20060233257A1
-    0xFF60: "PPM",   0xFF61: "PPT",   0xFF62: "ILL",   0xFF63: "CRG",
-    0xFF64: "COM",   0xFF65: "SEC",   0xFF66: "EPB",   0xFF67: "ESD",
-    0xFF68: "EPC",   0xFF69: "RED",
+    0x60:    "PPM",   0x61:    "PPT",   0x62:    "ILL",     0x63:  "CRG",
+    0x64:    "COM",   0x65:    "SEC",   0x66:    "EPB",     0x67:  "ESD",
+    0x68:    "EPC",   0x69:    "RED",
 
     # 70-7F
-    0xFF70: "DCO",   0xFF71: "VMS",   0xFF72: "DFS",   0xFF73: "ADS",
-    0xFF74: "MCT",   0xFF75: "MCC",   0xFF76: "NLT",   0xFF77: "MCO",
-    0xFF78: "CBD",   0xFF79: "ATK",
+    0x70:    "DCO",   0x71:    "VMS",   0x72:    "DFS",     0x73:  "ADS",
+    0x74:    "MCT",   0x75:    "MCC",   0x76:    "NLT",     0x77:  "MCO",
+    0x78:    "CBD",   0x79:    "ATK",
 
     # 90-9F
-    0xFF90: "SOT",   0xFF91: "SOP",   0xFF92: "EPH",   0xFF93: "SOD",
-    0xFF94: "INSEC",
+    0x90:    "SOT",   M_SOP:   "SOP",   M_EPH:   "EPH",   M_SOD:   "SOD",
+    0x94:    "INSEC",
 
     # C0-CF
-    0xFFC0: "SOF0",  0xFFC1: "SOF1",  0xFFC2: "SOF2",  0xFFC3: "SOF3",
-    0xFFC4: "DHT",   0xFFC5: "SOF5",  0xFFC6: "SOF6",  0xFFC7: "SOF7",
-    0xFFC8: "JPG",   0xFFC9: "SOF9",  0xFFCA: "SOF10", 0xFFCB: "SOF11",
-    0xFFCC: "DAC",   0xFFCD: "SOF13", 0xFFCE: "SOF14", 0xFFCF: "SOF15",
+    M_SOF0:  "SOF0",  M_SOF1:  "SOF1",  M_SOF2:  "SOF2",  M_SOF3:  "SOF3",
+    M_DHT:   "DHT",   M_SOF5:  "SOF5",  M_SOF6:  "SOF6",  M_SOF7:  "SOF7",
+    M_JPG:   "JPG",   M_SOF9:  "SOF9",  M_SOF10: "SOF10", M_SOF11: "SOF11",
+    M_DAC:   "DAC",   M_SOF13: "SOF13", M_SOF14: "SOF14", M_SOF15: "SOF15",
 
     # D0-DF
-    0xFFD0: "RST0",  0xFFD1: "RST1",  0xFFD2: "RST2",  0xFFD3: "RST3",
-    0xFFD4: "RST4",  0xFFD5: "RST5",  0xFFD6: "RST6",  0xFFD7: "RST7",
-    0xFFD8: "SOI",   0xFFD9: "EOI",   0xFFDA: "SOS",   0xFFDB: "DQT",
-    0xFFDC: "DNL",   0xFFDD: "DRI",   0xFFDE: "DHP",   0xFFDF: "EXP",
+    M_RST0:  "RST0",  M_RST1:  "RST1",  M_RST2:  "RST2",  M_RST3:  "RST3",
+    M_RST4:  "RST4",  M_RST5:  "RST5",  M_RST6:  "RST6",  M_RST7:  "RST7",
+    M_SOI:   "SOI",   M_EOI:   "EOI",   M_SOS:   "SOS",   M_DQT:   "DQT",
+    M_DNL:   "DNL",   M_DRI:   "DRI",   M_DHP:   "DHP",   M_EXP:   "EXP",
 
     # E0-EF
-    0xFFE0: "APP0",  0xFFE1: "APP1",  0xFFE2: "APP2",   0xFFE3: "APP3",
-    0xFFE4: "APP4",  0xFFE5: "APP5",  0xFFE6: "APP6",   0xFFE7: "APP7",
-    0xFFE8: "APP8",  0xFFE9: "APP9",  0xFFEA: "APP10",  0xFFEB: "APP11",
-    0xFFEC: "APP12", 0xFFED: "APP13", 0xFFEE: "APP14",  0xFFEF: "APP15",
+    M_APP0:  "APP0",  M_APP1:  "APP1",  M_APP2:  "APP2",  M_APP3:  "APP3",
+    M_APP4:  "APP4",  M_APP5:  "APP5",  M_APP6:  "APP6",  M_APP7:  "APP7",
+    M_APP8:  "APP8",  M_APP9:  "APP9",  M_APP10: "APP10", M_APP11: "APP11",
+    M_APP12: "APP12", M_APP13: "APP13", M_APP14: "APP14", M_APP15: "APP15",
 
     # F0-FE
-    0xFFF0: "VER",   0xFFF1: "DTI",   0xFFF2: "DTT",    0xFFF3: "SRF",
-    0xFFF4: "SRS",   0xFFF5: "DCR",   0xFFF6: "DQS",    0xFFF7: "SOF55",
-    0xFFF8: "LSE",   0xFFF9: "JPG9",  0xFFFA: "JPG10",  0xFFFB: "JPG11",
-    0xFFFC: "JPG12", 0xFFFD: "JPG13", 0xFFFE: "COM",
+    M_JPG0:  "JPG0",  0xF1:    "DTI",   0xF2:    "DTT",   0xF3:    "SRF",
+    0xF4:    "SRS",   0xF5:    "DCR",   0xF6:    "DQS",   0xF7:    "SOF55",
+    0xF8:    "LSE",   0xF9:    "JPG9",  0xFA:    "JPG10", 0xFB:    "JPG11",
+    0xFC:    "JPG12", 0xFD:    "JPG13", M_COM:   "COM",
 }
 
 paramterless_jpeg_markers = [
-    0xFF01, 0xFF0A,                 # TEM, JXL
+    M_TEM,   0x0A,                   # TEM, JXL
 
-                            0xFF4F, # SOC
+                               0x4F, # SOC
 
-    0xFF30, 0xFF31, 0xFF32, 0xFF33, # RES (Reserved), guaranteed parameter less
-    0xFF34, 0xFF35, 0xFF36, 0xFF37,
-    0xFF38, 0xFF39, 0xFF3A, 0xFF3B,
-    0xFF3C, 0xFF3D, 0xFF3E, 0xFF3F,
+    0x30,    0x31,    0x32,    0x33, # RES (Reserved), guaranteed parameter less
+    0x34,    0x35,    0x36,    0x37,
+    0x38,    0x39,    0x3A,    0x3B,
+    0x3C,    0x3D,    0x3E,    0x3F,
 
-                    0xFF92, 0xFF93, # EPH, SOD
+                      0x92,    M_SOD, # EPH, SOD
 
-    0xFFD0, 0xFFD1, 0xFFD2, 0xFFD3, # RST0, RST1, RST2, RST3
-    0xFFD4, 0xFFD5, 0xFFD6, 0xFFD7, # RST4, RST5, RST6, RST7
-    0xFFD8, 0xFFD9,                 # SOI, EOI/EOC
+    M_RST0,  M_RST1,  M_RST2,  M_RST3,
+    M_RST4,  M_RST5,  M_RST6,  M_RST7,
+    M_SOI,   M_EOI,                  # SOI, EOI/EOC
 ]
 
 valid_bitstream_markers = [
-    0xFF00,
-    0xFF90,                         # SOT
-    0xFFD0, 0xFFD1, 0xFFD2, 0xFFD3, # RST0, RST1, RST2, RST3
-    0xFFD4, 0xFFD5, 0xFFD6, 0xFFD7, # RST4, RST5, RST6, RST7
-    0xFFD8, 0xFFD9,                 # SOI, EOI/EOC
+    M_PAD,
+    0x90,                           # SOT
+    M_RST0, M_RST1, M_RST2, M_RST3,
+    M_RST4, M_RST5, M_RST6, M_RST7,
+    M_SOI,  M_EOI,                  # SOI, EOI/EOC
 ]
 
 start_of_bitsream_markers = [
-    0xFFD0, 0xFFD1, 0xFFD2, 0xFFD3, # RST0, RST1, RST2, RST3
-    0xFFD4, 0xFFD5, 0xFFD6, 0xFFD7, # RST4, RST5, RST6, RST7
+    M_RST0, M_RST1, M_RST2, M_RST3,
+    M_RST4, M_RST5, M_RST6, M_RST7,
 
-    0xFF93, 0xFFDA,                 # SOD, SOS
+    M_SOD,   M_SOS,                 # SOD, SOS
 ]
 
 end_of_bitstream_markers = [
-    0xFFD9, 0xFF90                  # EOI/EOC, SOT
+    M_EOI, 0x90                  # EOI/EOC, SOT
 ]
 # fmt: on
 
@@ -153,18 +158,18 @@ def read_image_data(file, bitstream_marker_code):
                 break   # Not found
 
             try:
-                marker_code = data[index + 1] | 0xFF00
+                marker_code = data[index + 1]
             except IndexError:
                 break
 
-            if bitstream_marker_code != 0xFF93:  # not SOD, i.e. "plain" JPEG
+            if bitstream_marker_code != M_SOD:  # not SOD, i.e. "plain" JPEG
                 # padding or stuffing, and RST markers
                 if (
-                    marker_code == 0xFFFF
-                    or marker_code == 0xFF00
-                    or 0xFFD0 <= marker_code <= 0xFFD7
+                    marker_code == M_PAD # Padding
+                    or marker_code == M_STUF # Stuffing
+                    or M_RST0 <= marker_code <= M_RST7
                 ):
-                    #if 0xFFD0 <= marker_code <= 0xFFD7:
+                    #if M_RST0 <= marker_code <= M_RST7:
                     #    stream_markers[index] = jpeg_markers[marker_code]
                     search_offset = index + 2
                     continue
@@ -174,7 +179,7 @@ def read_image_data(file, bitstream_marker_code):
                     file.seek(orig_fpos + index)
                     return (bytes(data), stream_markers) 
             else:  # SOD, JPEG 2000
-                if marker_code == 0xFF91 or marker_code == 0xFF92:  # SOP or EPH
+                if marker_code == M_SOP or marker_code == M_EPH:  # SOP or EPH
                     try:
                         segment_length_bytes = data[(index + 2) : (index + 4)]
                     except IndexError:
@@ -228,7 +233,7 @@ def segment_string(offset, marker_code, data):
     if marker_code:
         segment_len = len(data) - 2
         marker_name = jpeg_markers.get(marker_code, "RES")
-        marker_name = f"{marker_name:5} (0x{marker_code:04X})  "
+        marker_name = f"{marker_name:5} (0xFF{marker_code:02X})  "
     else:
         segment_len = len(data)
         marker_code = ""
@@ -330,6 +335,8 @@ def gimp_hash_string(qtables):
 
 # GDAL hashes all DQT segments, including length bytes
 def gdal_hash_string(qtable_data_segments):
+    #pprint([ ''.join(format(x, '02x') for x in byte_string) for byte_string in qtable_data_segments])
+
     # Concatenate all byte objects
     qtable_bytestring = b''.join(qtable_data_segments)
 
@@ -540,11 +547,6 @@ def read_bytes(file, num_bytes):
         raise EOFError("End of file reached")
     return bytes
 
-
-# Define constants
-JPEG_MARKER_BYTE = 0xFF
-JPEG_ZERO = 0x00
-
 def read_jpeg_markers(file_path):
     markers = {}
     qtables = {}
@@ -561,12 +563,12 @@ def read_jpeg_markers(file_path):
 
                     data = read_bytes(file, 2)
                     try:
-                        marker_code = struct.unpack(">H", data)[0]
-                    except struct.error:
+                        marker_code = data[1]
+                    except IndexError:
                         break   #End of file
 
                     # Skip if marker is not valid
-                    if (marker_code >> 8 != 0xFF) or marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_ZERO) or marker_code == (JPEG_MARKER_BYTE << 8 | JPEG_MARKER_BYTE):
+                    if (data[0] != 0xff or marker_code == M_STUF or marker_code == M_PAD):
                         offset += 2
                         continue
 
@@ -581,11 +583,11 @@ def read_jpeg_markers(file_path):
                         # discard marker bytes
                         data_segment = data[2:]
 
-                        if marker_code == 0xFFDB:   #DTQ
+                        if marker_code == M_DQT:   # DQT
                             table_ids = read_qtables(data_segment, qtables)
                             markers[offset] += "(" + ",".join(map(str, table_ids)) + ")"
                             qtable_data_segments.append(data_segment)
-                        elif marker_code == 0xFFC4:     # DHT
+                        elif marker_code == M_DHT:     # DHT
                             table_ids = read_htables(data_segment)
                             markers[offset] += "(" + ",".join(table_ids) + ")"
                             htable_data_segments.append(data_segment)
@@ -682,7 +684,7 @@ def read_jpeg_markers(file_path):
             print(f"\ngimp_hash_string (rotated): {gp_hash_string_r}")
 
             gd_hash_string = gdal_hash_string(qtable_data_segments)
-            print(f"\ngdal_hash_string:\n{gd_hash_string}")
+            print(f"\ngdal_hash_string: {gd_hash_string}")
 
             gd_hash_string_r = gdal_hash_string(trans_data_segs)
             print(f"\ngdal_hash_string (rotated): {gd_hash_string_r}")
