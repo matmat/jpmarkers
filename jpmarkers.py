@@ -2,14 +2,13 @@
 
 import argparse
 import struct
-import os
 import hashlib
+from prettytable import PrettyTable
 from pprint import pprint
 import sigs_jpegsnoop
 import sigs_exiftool
 import sigs_gdal
 import sigs_gimp
-import numpy as np
 
 
 # fmt: off
@@ -218,7 +217,7 @@ def hash_matrices(matrix_dict):
 
 def concat_hash_qtables(qtables):
     concatenated_arrays = []
-    for arrays in qtables.values():
+    for arrays in sorted(qtables.values()):
         for array in arrays:
             concatenated_arrays.extend(array)
 
@@ -238,7 +237,7 @@ def segment_string(offset, marker_code, data):
         segment_len = len(data)
         marker_code = ""
         marker_name = "[ECS]"
-        marker_name = f"{marker_name:14}"
+        marker_name = f"{marker_name:16}"
 
     if len(data[2:]) > 0:
         segment_hash = hashlib.md5(data[2:]).hexdigest()
@@ -321,7 +320,8 @@ def transpose_qtables(qtables):
     return transposed
 
 
-
+# Reimplementation of custom hash algo in GIMP source tree:
+# plug-ins/file-jpeg/jpegqual.c 
 def gimp_hash_string(qtables):
     hashval = 11
     for t in sorted(qtables.keys()):
@@ -333,7 +333,8 @@ def gimp_hash_string(qtables):
     return format(hashval, '08x')
 
 
-# GDAL hashes all DQT segments, including length bytes
+# GDAL hashes all DQT segments in file order (including length bytes)
+# Reimplementation of frmts/gtiff/generate_quant_table_md5sum.cpp
 def gdal_hash_string(qtable_data_segments):
     #pprint([ ''.join(format(x, '02x') for x in byte_string) for byte_string in qtable_data_segments])
 
@@ -379,6 +380,20 @@ def exiftool_hash_string(qtable_datasegments):
 # CjfifDecode::PrepareSignatureSingle() in source/JfifDecode.cpp
 def qtable_integer_string(qtable):
     return ','.join([f'{num:03}' for sublist in qtable for num in sublist]) + ','
+
+def adamp_qtable_string(qtable):
+    return '!'.join([','.join(map(str, sublist)) for sublist in qtable])
+
+def adamp_qtables(qtables):
+    return ({k: adamp_qtable_string(v) for k, v in qtables.items()})
+
+def adamp_hash_string(qtables):
+    hash_string = ','.join(f"*DQT{k},{adamp_qtable_string(v)}" for k, v in qtables.items())
+    hash_string = hash_string + "*END"
+    print(hash_string)
+    hash_string = hashlib.md5(hash_string.encode()).hexdigest()
+    return hash_string
+
 
 def jpegsnoop_hash_string(qtables):
     hash_string = ''.join(f"*DQT{k},{qtable_integer_string(v)}" for k, v in qtables.items())
@@ -547,6 +562,15 @@ def read_bytes(file, num_bytes):
         raise EOFError("End of file reached")
     return bytes
 
+def get_jpegsnoop_description_string(js_data):
+    category = js_data["eEditor"]
+
+    if category == "ENUM_EDITOR_SW":
+        return " ".join([js_data["strMSwDisp"], js_data["strUmQual"]])
+    else:
+        return " ".join([js_data["strXMake"], js_data["strUmQual"]])
+                        
+
 def read_jpeg_markers(file_path):
     markers = {}
     qtables = {}
@@ -610,19 +634,141 @@ def read_jpeg_markers(file_path):
                 except EOFError:
                     break
 
-            print("\n")
+            print("\nMarker sequence:")
             #print(np.array([markers[key] for key in sorted(markers)]))
             print([markers[key] for key in sorted(markers)])
+            print("\n")
 
 
             qtables_linear = qdict_zigzag_to_linear(qtables)
             qtables_trans  = transpose_qtables(qtables_linear)
 
+            #print("Adamp zigzag")
+            #adamp_hash_string(qtables_linear)
+
+            #print("Adamp linear")
+            #adamp_hash_string(qtables_linear)
+
+
+            match_tbl = PrettyTable()
+            #match_tbl.field_names = ["Matching hash", "database", "Company", "Product", "QF", "Rotated"]
 
             trans_data_segs  = transpose_data_segments(qtable_data_segments)
 
+
+
+            # Set field names and alignment for match table
+            match_tbl.field_names = ["Matching hash", "database", "Description", "Rotated"]
+            match_tbl.align = "l"
+            match_tbl.sortby = "Description"
+
+
             et_hash_string = exiftool_hash_string(qtable_data_segments)
             et_hash_string_r = exiftool_hash_string(trans_data_segs)
+            # If et_hash_string is in signatures
+            if et_hash_string in sigs_exiftool.sigs:
+                for hmatches in sigs_exiftool.sigs[et_hash_string]:
+                    tbl_row = [et_hash_string, "Exiftool"]
+                    tbl_row.append(hmatches["description"])
+                    if "description" in hmatches:
+                        tbl_row.append("Symmetrical" if et_hash_string == et_hash_string_r else "")
+                        match_tbl.add_row(tbl_row)
+
+            # If et_hash_string_r is in signatures
+            elif et_hash_string_r in sigs_exiftool.sigs:
+                for hmatches in sigs_exiftool.sigs[et_hash_string_r]:
+                    tbl_row = [et_hash_string, "Exiftool"]
+                    tbl_row.append(hmatches["description"])
+                    print("match2")
+
+                    if "description" in hmatches:
+                        tbl_row.append("Symmetrical" if et_hash_string == et_hash_string_r else "Rotated")
+                        print("tbl_row (rot):", tbl_row)
+                        match_tbl.add_row(tbl_row)
+
+
+            gd_hash_string = gdal_hash_string(qtable_data_segments)
+            gd_hash_string_r = gdal_hash_string(trans_data_segs)
+
+            # Check if GDAL hash strings are in signatures
+
+            # If gdal_hash_string is in signatures
+            if gd_hash_string in sigs_gdal.sigs:
+                for hmatches in sigs_gdal.sigs[gd_hash_string]:
+                    tbl_row = [gd_hash_string, "GDAL"]
+                    tbl_row.append(hmatches)
+                    tbl_row.append("Symmetrical" if et_hash_string == et_hash_string_r else "")
+                    match_tbl.add_row(tbl_row)
+
+            # If gd_hash_string_r is in signatures
+            elif gd_hash_string_r in sigs_gdal.sigs:
+                for hmatches in sigs_gdal.sigs[gd_hash_string_r]:
+                    tbl_row = [gd_hash_string, "GDAL"]
+                    tbl_row.append(hmatches)
+                    tbl_row.append("Symmetrical" if et_hash_string == et_hash_string_r else "Rotated")
+                    match_tbl.add_row(tbl_row)
+
+            js_hash_string = jpegsnoop_hash_string(qtables_linear)
+            js_hash_string_r = jpegsnoop_hash_string(qtables_trans)
+
+
+            # Check if JPEGsnoop hash strings are in signatures
+            # If js_hash_string is in signatures
+            if js_hash_string in sigs_jpegsnoop.sigs:
+                for hmatches in sigs_jpegsnoop.sigs[js_hash_string]:
+                    tbl_row = [js_hash_string, "JPEGSnoop"]
+                    tbl_row.append(get_jpegsnoop_description_string(hmatches))
+                    tbl_row.append("Symmetrical" if js_hash_string == js_hash_string_r else "")
+                    match_tbl.add_row(tbl_row)
+
+            # If js_hash_string_r is in signatures
+            elif js_hash_string_r in sigs_jpegsnoop.sigs:
+                for hmatches in sigs_jpegsnoop.sigs[js_hash_string_r]:
+                    print("js_hash_string_r: ", js_hash_string_r)
+                    tbl_row = [js_hash_string, "JPEGSnoop"]
+                    tbl_row.append(get_jpegsnoop_description_string(hmatches))
+                    tbl_row.append("Symmetrical" if js_hash_string == js_hash_string_r else "Rotated")
+                    match_tbl.add_row(tbl_row)
+
+
+            gp_hash_string = gimp_hash_string(qtables_linear)
+            gp_hash_string_r = gimp_hash_string(qtables_trans)
+
+            
+            # Check if GIMP hash strings are in signatures
+            # If gp_hash_string is in signatures
+            if gp_hash_string in sigs_gimp.sigs:
+                for hmatches in sigs_gimp.sigs[gp_hash_string]:
+                    tbl_row = [gp_hash_string, "GIMP"]
+                    tbl_row.append(" ".join([hmatches["source_name"], hmatches["setting_name"]]))
+                    tbl_row.append("Symmetrical" if gp_hash_string == gp_hash_string_r else "")
+                    match_tbl.add_row(tbl_row)
+            
+                    
+            # If gp_hash_string_r is in signatures
+            elif gp_hash_string_r in sigs_gimp.sigs:
+                for hmatches in sigs_gimp.sigs[gp_hash_string_r]:
+                    print("gp_hash_string_r: ", gp_hash_string_r)
+                    tbl_row = [gp_hash_string, "JPEGSnoop"]
+                    tbl_row.append(" ".join([hmatches["source_name"], hmatches["setting_name"]]))
+                    tbl_row.append("Symmetrical" if gp_hash_string == gp_hash_string_r else "Rotated")
+                    match_tbl.add_row(tbl_row)
+
+
+            print(match_tbl)
+
+            '''
+            print("\n")
+
+            print(f"independantly hashed qtables (zigzag):\n{hash_matrices(qtables)}")
+            print(f"independantly hashed qtables (linear):\n{hash_matrices(qtables_linear)}")
+
+            print("\n")
+            print(f"\nAll qtables concatenated, then hashed (zigzag):\n{concat_hash_qtables(qtables)}")
+            print(f"\nAll qtables concatenated, then hashed (linear):\n{concat_hash_qtables(qtables_linear)}")
+            '''
+            
+            '''
             if et_hash_string in sigs_exiftool.sigs:
                 print("\nmatching_sigs_exiftool:")
                 pprint(sigs_exiftool.sigs[et_hash_string])
@@ -631,8 +777,6 @@ def read_jpeg_markers(file_path):
                 print("\nmatching_sigs_exiftool_(rotated):")
                 pprint(sigs_exiftool.sigs[et_hash_string_r])
 
-            gd_hash_string = gdal_hash_string(qtable_data_segments)
-            gd_hash_string_r = gdal_hash_string(trans_data_segs)
             if gd_hash_string in sigs_gdal.sigs:
                 print("\nmatching_sigs_gdal:")
                 pprint(sigs_gdal.sigs[gd_hash_string])
@@ -641,9 +785,6 @@ def read_jpeg_markers(file_path):
                 print("\nmatching_sigs_gdal_(rotated):")
                 pprint(sigs_gdal.sigs[gd_hash_string_r])
 
-
-            gp_hash_string = gimp_hash_string(qtables_linear)
-            gp_hash_string_r = gimp_hash_string(qtables_trans)
             if gp_hash_string in sigs_gimp.sigs:
                 print("\nmatching_sigs_gimp:")
                 pprint(sigs_gimp.sigs[gp_hash_string])
@@ -652,9 +793,6 @@ def read_jpeg_markers(file_path):
                 print("\nmatching_sigs_gimp_(rotated):")
                 pprint(sigs_gimp.sigs[gp_hash_string_r])
 
-
-            js_hash_string = jpegsnoop_hash_string(qtables_linear)
-            js_hash_string_r = jpegsnoop_hash_string(qtables_trans)
             if js_hash_string in sigs_jpegsnoop.sigs:
                 print("\nmatching_sigs_jpegsnoop:")
                 pprint(sigs_jpegsnoop.sigs[js_hash_string])
@@ -662,15 +800,9 @@ def read_jpeg_markers(file_path):
             if js_hash_string_r in sigs_jpegsnoop.sigs:
                 print("\nmatching_sigs_jpegsnoop_(rotated):")
                 pprint(sigs_jpegsnoop.sigs[js_hash_string_r])
+            '''
 
-
-            print("\n")
-
-            #print(f"independantly hashed qtables:\n{hash_matrices(qtables)}")
-
-            #print("\n")
-            #print(f"\nAll qtables concatenated, then hashed:\n{concat_hash_qtables(qtables)}")
-
+            '''
             et_hash_string = exiftool_hash_string(qtable_data_segments)
             print(f"\nexiftool_hash_string: {et_hash_string}")
 
@@ -694,16 +826,23 @@ def read_jpeg_markers(file_path):
 
             js_hash_string_r = jpegsnoop_hash_string(qtables_trans)
             print(f"\njpegsnoop_hash_string (rotated): {js_hash_string_r}")
-
+            '''
+            
+            
             #print("\nqtables_zigzag:\n")
             #pprint(qtables)
+
+            qtables_linear = dict(sorted(qtables_linear.items()))
+
+            print("qtables in adamp format")
+            pprint(adamp_qtables(qtables_linear))
 
             print("\nqtables_linear:\n")
             pprint(qtables_linear)
 
             #print("\nqtables_transposed")
             #pprint(transpose_qtables(qtables_linear))
-
+            
 
 
 
